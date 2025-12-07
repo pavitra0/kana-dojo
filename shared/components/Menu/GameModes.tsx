@@ -7,7 +7,7 @@ import { MousePointerClick, Keyboard, Play, ArrowLeft } from 'lucide-react';
 import clsx from 'clsx';
 import { useClick } from '@/shared/hooks/useAudio';
 import { useShallow } from 'zustand/react/shallow';
-import { Link } from '@/core/i18n/routing';
+import { Link, useRouter } from '@/core/i18n/routing';
 // import { ActionButton } from '@/shared/components/ui/ActionButton';
 
 interface GameModesProps {
@@ -18,6 +18,7 @@ interface GameModesProps {
 
 const GameModes = ({ isOpen, onClose, currentDojo }: GameModesProps) => {
   const { playClick } = useClick();
+  const router = useRouter();
 
   const { selectedGameModeKana, setSelectedGameModeKana } = useKanaStore(
     useShallow(state => ({
@@ -58,11 +59,15 @@ const GameModes = ({ isOpen, onClose, currentDojo }: GameModesProps) => {
       ? setSelectedGameModeVocab
       : () => {};
 
-  // Close on Escape key
+  // Keyboard shortcuts: Escape to close, Enter to start training
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         onClose();
+      }
+      if (e.key === 'Enter' && selectedGameMode) {
+        playClick();
+        router.push(`/${currentDojo}/train`);
       }
     };
 
@@ -75,7 +80,7 @@ const GameModes = ({ isOpen, onClose, currentDojo }: GameModesProps) => {
       window.removeEventListener('keydown', handleKeyDown);
       document.body.style.overflow = '';
     };
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, selectedGameMode, currentDojo, playClick, router]);
 
   const gameModes = [
     {
