@@ -12,11 +12,11 @@ const explosionKeyframes = `
     opacity: 1;
   }
   50% {
-    transform: scale(1.5);
+    transform: scale(2.4);
     opacity: 0.5;
   }
   100% {
-    transform: scale(2);
+    transform: scale(4);
     opacity: 0;
   }
 }
@@ -184,7 +184,7 @@ const KanjiCharacter = ({
         'text-4xl inline-flex items-center justify-center',
         styles.fontClass,
         !interactive && styles.animation,
-        interactive && 'cursor-pointer'
+        interactive && animState === 'idle' && 'cursor-pointer'
       )}
       aria-hidden="true"
       style={{
