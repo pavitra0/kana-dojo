@@ -49,21 +49,22 @@ const Stats: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [playClick, toggleStats]);
 
-  // Get data from store
-  const numCorrectAnswers: number = useStatsStore(
-    state => state.numCorrectAnswers
-  );
-  const numWrongAnswers: number = useStatsStore(state => state.numWrongAnswers);
-  const characterHistory: string[] = useStatsStore(
-    state => state.characterHistory
-  );
-  const totalMilliseconds: number = useStatsStore(
-    state => state.totalMilliseconds
-  );
-  const correctAnswerTimes: number[] = useStatsStore(
-    state => state.correctAnswerTimes
-  );
-  const characterScores = useStatsStore(state => state.characterScores);
+  // Get data from store (combined selector for better performance)
+  const {
+    numCorrectAnswers,
+    numWrongAnswers,
+    characterHistory,
+    totalMilliseconds,
+    correctAnswerTimes,
+    characterScores
+  } = useStatsStore(state => ({
+    numCorrectAnswers: state.numCorrectAnswers,
+    numWrongAnswers: state.numWrongAnswers,
+    characterHistory: state.characterHistory,
+    totalMilliseconds: state.totalMilliseconds,
+    correctAnswerTimes: state.correctAnswerTimes,
+    characterScores: state.characterScores
+  }));
 
   // Calculate time
   const totalMinutes: number = Math.floor(totalMilliseconds / 60000);

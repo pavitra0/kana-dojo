@@ -1,6 +1,6 @@
 'use client';
 import clsx from 'clsx';
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { kana } from '@/features/Kana/data/kana';
 import useKanaStore from '@/features/Kana/store/useKanaStore';
 import { CircleCheck, CircleX } from 'lucide-react';
@@ -60,29 +60,42 @@ const PickGame = ({ isHidden }: PickGameProps) => {
 
   const kanaGroupIndices = useKanaStore((state) => state.kanaGroupIndices);
 
-  const selectedKana = kanaGroupIndices.map((i) => kana[i].kana).flat();
-  const selectedRomaji = kanaGroupIndices.map((i) => kana[i].romanji).flat();
+  const selectedKana = useMemo(
+    () => kanaGroupIndices.map((i) => kana[i].kana).flat(),
+    [kanaGroupIndices]
+  );
+  const selectedRomaji = useMemo(
+    () => kanaGroupIndices.map((i) => kana[i].romanji).flat(),
+    [kanaGroupIndices]
+  );
 
   // For normal pick mode
-  const selectedPairs = Object.fromEntries(
-    selectedKana.map((key, i) => [key, selectedRomaji[i]])
+  const selectedPairs = useMemo(
+    () => Object.fromEntries(selectedKana.map((key, i) => [key, selectedRomaji[i]])),
+    [selectedKana, selectedRomaji]
   );
 
   // For reverse pick mode
-  const selectedPairs1 = Object.fromEntries(
-    selectedRomaji.map((key, i) => [key, selectedKana[i]])
+  const selectedPairs1 = useMemo(
+    () => Object.fromEntries(selectedRomaji.map((key, i) => [key, selectedKana[i]])),
+    [selectedRomaji, selectedKana]
   );
-  const selectedPairs2 = Object.fromEntries(
-    selectedRomaji
-      .map((key, i) => [key, selectedKana[i]])
-      .slice()
-      .reverse()
+  const selectedPairs2 = useMemo(
+    () => Object.fromEntries(
+      selectedRomaji
+        .map((key, i) => [key, selectedKana[i]])
+        .slice()
+        .reverse()
+    ),
+    [selectedRomaji, selectedKana]
   );
-  const reversedPairs1 = Object.fromEntries(
-    Object.entries(selectedPairs1).map(([key, value]) => [value, key])
+  const reversedPairs1 = useMemo(
+    () => Object.fromEntries(Object.entries(selectedPairs1).map(([key, value]) => [value, key])),
+    [selectedPairs1]
   );
-  const reversedPairs2 = Object.fromEntries(
-    Object.entries(selectedPairs2).map(([key, value]) => [value, key])
+  const reversedPairs2 = useMemo(
+    () => Object.fromEntries(Object.entries(selectedPairs2).map(([key, value]) => [value, key])),
+    [selectedPairs2]
   );
 
   // State for normal pick mode - uses weighted selection for adaptive learning
@@ -193,7 +206,46 @@ const PickGame = ({ isHidden }: PickGameProps) => {
     return null;
   }
 
-  const handleOptionClick = (selectedChar: string) => {
+  const handleCorrectAnswer = useCallback((correctChar: string) => {
+    speedStopwatch.pause();
+    addCorrectAnswerTime(speedStopwatch.totalMilliseconds / 1000);
+    speedStopwatch.reset();
+    playCorrect();
+    addCharacterToHistory(correctChar);
+    incrementCharacterScore(correctChar, 'correct');
+    incrementCorrectAnswers();
+    setScore(score + 1);
+    setWrongSelectedAnswers([]);
+    triggerCrazyMode();
+    // Update adaptive weight system - reduces probability of mastered characters
+    adaptiveSelector.updateCharacterWeight(correctChar, true);
+    // Smart algorithm decides next mode based on performance
+    decideNextMode();
+    // Progressive difficulty - track correct answer
+    recordDifficultyCorrect();
+  }, [speedStopwatch, addCorrectAnswerTime, playCorrect, addCharacterToHistory, incrementCharacterScore, incrementCorrectAnswers, score, triggerCrazyMode, adaptiveSelector, decideNextMode, recordDifficultyCorrect]);
+
+  const handleWrongAnswer = useCallback((selectedChar: string) => {
+    setWrongSelectedAnswers([...wrongSelectedAnswers, selectedChar]);
+    playErrorTwice();
+    const currentChar = isReverse ? correctRomajiCharReverse : correctKanaChar;
+    incrementCharacterScore(currentChar, 'wrong');
+    incrementWrongAnswers();
+    if (score - 1 < 0) {
+      setScore(0);
+    } else {
+      setScore(score - 1);
+    }
+    triggerCrazyMode();
+    // Update adaptive weight system - increases probability of difficult characters
+    adaptiveSelector.updateCharacterWeight(currentChar, false);
+    // Reset consecutive streak without changing mode (avoids rerolling the question)
+    recordWrongAnswer();
+    // Progressive difficulty - track wrong answer
+    recordDifficultyWrong();
+  }, [wrongSelectedAnswers, playErrorTwice, isReverse, correctRomajiCharReverse, correctKanaChar, incrementCharacterScore, incrementWrongAnswers, score, triggerCrazyMode, adaptiveSelector, recordWrongAnswer, recordDifficultyWrong]);
+
+  const handleOptionClick = useCallback((selectedChar: string) => {
     if (!isReverse) {
       // Normal pick mode logic
       if (selectedChar === correctRomajiChar) {
@@ -250,46 +302,7 @@ const PickGame = ({ isHidden }: PickGameProps) => {
         );
       }
     }
-  };
-
-  const handleCorrectAnswer = (correctChar: string) => {
-    speedStopwatch.pause();
-    addCorrectAnswerTime(speedStopwatch.totalMilliseconds / 1000);
-    speedStopwatch.reset();
-    playCorrect();
-    addCharacterToHistory(correctChar);
-    incrementCharacterScore(correctChar, 'correct');
-    incrementCorrectAnswers();
-    setScore(score + 1);
-    setWrongSelectedAnswers([]);
-    triggerCrazyMode();
-    // Update adaptive weight system - reduces probability of mastered characters
-    adaptiveSelector.updateCharacterWeight(correctChar, true);
-    // Smart algorithm decides next mode based on performance
-    decideNextMode();
-    // Progressive difficulty - track correct answer
-    recordDifficultyCorrect();
-  };
-
-  const handleWrongAnswer = (selectedChar: string) => {
-    setWrongSelectedAnswers([...wrongSelectedAnswers, selectedChar]);
-    playErrorTwice();
-    const currentChar = isReverse ? correctRomajiCharReverse : correctKanaChar;
-    incrementCharacterScore(currentChar, 'wrong');
-    incrementWrongAnswers();
-    if (score - 1 < 0) {
-      setScore(0);
-    } else {
-      setScore(score - 1);
-    }
-    triggerCrazyMode();
-    // Update adaptive weight system - increases probability of difficult characters
-    adaptiveSelector.updateCharacterWeight(currentChar, false);
-    // Reset consecutive streak without changing mode (avoids rerolling the question)
-    recordWrongAnswer();
-    // Progressive difficulty - track wrong answer
-    recordDifficultyWrong();
-  };
+  }, [isReverse, correctRomajiChar, handleCorrectAnswer, correctKanaChar, adaptiveSelector, selectedKana, handleWrongAnswer, reversedPairs1, reversedPairs2, correctRomajiCharReverse, selectedRomaji, correctKanaCharReverse]);
 
   const displayChar = isReverse ? correctRomajiCharReverse : correctKanaChar;
   const gameMode = 'pick';
