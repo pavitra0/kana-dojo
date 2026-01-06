@@ -276,10 +276,9 @@ const KanjiSummary = ({
   isEmbedded?: boolean;
 }) => (
   <motion.div
-    variants={slideInVariants}
+    variants={containerVariants}
     initial='hidden'
     animate='visible'
-    exit='exit'
     className='flex w-full flex-col items-center justify-start gap-4 py-4 md:w-3/4 lg:w-1/2'
   >
     {!isEmbedded && <FeedbackHeader feedback={feedback} />}
@@ -341,10 +340,9 @@ const VocabSummary = ({
 
   return (
     <motion.div
-      variants={slideInVariants}
+      variants={containerVariants}
       initial='hidden'
       animate='visible'
-      exit='exit'
       className='flex w-full flex-col items-center justify-start gap-4 py-4 md:w-3/4 lg:w-1/2'
     >
       {!isEmbedded && <FeedbackHeader feedback={feedback} />}
