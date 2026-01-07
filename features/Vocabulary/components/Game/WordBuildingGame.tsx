@@ -28,6 +28,12 @@ import SSRAudioButton from '@/shared/components/audio/SSRAudioButton';
 const random = new Random();
 const adaptiveSelector = getGlobalAdaptiveSelector();
 
+// Helper function to check if a word contains kanji characters
+// Kanji are in the CJK Unified Ideographs range (U+4E00 to U+9FAF)
+const containsKanji = (text: string): boolean => {
+  return /[\u4E00-\u9FAF]/.test(text);
+};
+
 // Duolingo-like spring animation config
 const springConfig = {
   type: 'spring' as const,
@@ -265,6 +271,10 @@ const VocabWordBuildingGame = ({
   const { trigger: triggerCrazyMode } = useCrazyModeTrigger();
   const buttonRef = useRef<HTMLButtonElement>(null);
 
+  // Debounce ref to prevent rapid key presses from skipping AnswerSummary
+  const lastActionTimeRef = useRef<number>(0);
+  const DEBOUNCE_MS = 300; // Minimum time between actions
+
   const {
     score,
     setScore,
@@ -301,55 +311,96 @@ const VocabWordBuildingGame = ({
 
   const [bottomBarState, setBottomBarState] = useState<BottomBarState>('check');
 
+  // Quiz type: 'meaning' or 'reading' - alternates for kanji-containing words
+  const [quizType, setQuizType] = useState<'meaning' | 'reading'>('meaning');
+
   // Generate question: 1 word with multiple answer options
-  const generateQuestion = useCallback(() => {
-    if (selectedWordObjs.length === 0) {
-      return { word: '', correctAnswer: '', allTiles: [] };
-    }
+  const generateQuestion = useCallback(
+    (currentQuizType: 'meaning' | 'reading') => {
+      if (selectedWordObjs.length === 0) {
+        return {
+          word: '',
+          wordObj: null as IVocabObj | null,
+          correctAnswer: '',
+          allTiles: [] as string[],
+          quizType: currentQuizType
+        };
+      }
 
-    // Select a word using adaptive selection
-    const words = selectedWordObjs.map(obj => obj.word);
-    const selectedWord = adaptiveSelector.selectWeightedCharacter(words);
-    adaptiveSelector.markCharacterSeen(selectedWord);
+      // Select a word using adaptive selection
+      const words = selectedWordObjs.map(obj => obj.word);
+      const selectedWord = adaptiveSelector.selectWeightedCharacter(words);
+      adaptiveSelector.markCharacterSeen(selectedWord);
 
-    const selectedWordObj = wordObjMap.get(selectedWord);
-    if (!selectedWordObj) {
-      return { word: '', correctAnswer: '', allTiles: [] };
-    }
+      const selectedWordObj = wordObjMap.get(selectedWord);
+      if (!selectedWordObj) {
+        return {
+          word: '',
+          wordObj: null as IVocabObj | null,
+          correctAnswer: '',
+          allTiles: [] as string[],
+          quizType: currentQuizType
+        };
+      }
 
-    // In normal mode: show word, answer with meaning
-    // In reverse mode: show meaning, answer with word
-    const correctAnswer = isReverse
-      ? selectedWord
-      : selectedWordObj.meanings[0];
+      // Adjust quiz type based on the selected word
+      // Skip reading quiz for kana-only words since reading === word (pointless exercise)
+      let effectiveQuizType = currentQuizType;
+      if (currentQuizType === 'reading' && !containsKanji(selectedWord)) {
+        effectiveQuizType = 'meaning';
+      }
 
-    // Generate distractors
-    const distractorSource = isReverse
-      ? selectedWordObjs
+      // Determine correct answer based on quiz type and mode
+      let correctAnswer: string;
+      let distractorSource: string[];
+
+      if (effectiveQuizType === 'reading') {
+        // Reading quiz: answer is always the reading
+        correctAnswer = selectedWordObj.reading;
+        distractorSource = selectedWordObjs
           .filter(obj => obj.word !== selectedWord)
-          .map(obj => obj.word)
-      : selectedWordObjs
-          .filter(obj => obj.word !== selectedWord)
-          .map(obj => obj.meanings[0]);
+          .map(obj => obj.reading);
+      } else {
+        // Meaning quiz
+        if (isReverse) {
+          // Reverse: show meaning, answer is word
+          correctAnswer = selectedWord;
+          distractorSource = selectedWordObjs
+            .filter(obj => obj.word !== selectedWord)
+            .map(obj => obj.word);
+        } else {
+          // Normal: show word, answer is meaning
+          correctAnswer = selectedWordObj.meanings[0];
+          distractorSource = selectedWordObjs
+            .filter(obj => obj.word !== selectedWord)
+            .map(obj => obj.meanings[0]);
+        }
+      }
 
-    const distractors = distractorSource
-      .sort(() => random.real(0, 1) - 0.5)
-      .slice(0, distractorCount);
+      const distractors = distractorSource
+        .sort(() => random.real(0, 1) - 0.5)
+        .slice(0, distractorCount);
 
-    // Shuffle all tiles
-    const allTiles = [correctAnswer, ...distractors].sort(
-      () => random.real(0, 1) - 0.5
-    );
+      // Shuffle all tiles
+      const allTiles = [correctAnswer, ...distractors].sort(
+        () => random.real(0, 1) - 0.5
+      );
 
-    return {
-      word: selectedWord,
-      correctAnswer,
-      allTiles,
-      displayChar: isReverse ? selectedWordObj.meanings[0] : selectedWord
-    };
-  }, [isReverse, selectedWordObjs, distractorCount, wordObjMap]);
+      return {
+        word: selectedWord,
+        wordObj: selectedWordObj, // Store the object directly!
+        correctAnswer,
+        allTiles,
+        displayChar: isReverse ? selectedWordObj.meanings[0] : selectedWord,
+        quizType: effectiveQuizType // Use the effective quiz type (adjusted for kana words)
+      };
+    },
+    [isReverse, selectedWordObjs, distractorCount, wordObjMap]
+  );
 
-  const [questionData, setQuestionData] = useState(() => generateQuestion());
+  const [questionData, setQuestionData] = useState(() =>
+    generateQuestion(quizType)
+  );
   const [placedTiles, setPlacedTiles] = useState<string[]>([]);
   const [isChecking, setIsChecking] = useState(false);
   const [isCelebrating, setIsCelebrating] = useState(false);
@@ -360,22 +411,47 @@ const VocabWordBuildingGame = ({
     <>{'feedback ~'}</>
   );
 
-  const resetGame = useCallback(() => {
-    const newQuestion = generateQuestion();
-    setQuestionData(newQuestion);
-    setPlacedTiles([]);
-    setIsChecking(false);
-    setIsCelebrating(false);
-    setBottomBarState('check');
-    setDisplayAnswerSummary(false);
-    // Start timing for the new question
-    speedStopwatch.reset();
-    speedStopwatch.start();
-  }, [generateQuestion]);
+  // Determine next quiz type based on word content
+  const getNextQuizType = useCallback(
+    (
+      word: string,
+      currentType: 'meaning' | 'reading'
+    ): 'meaning' | 'reading' => {
+      // Only toggle to reading quiz if the word contains kanji
+      // Pure kana words skip reading quiz since reading === word
+      if (containsKanji(word)) {
+        return currentType === 'meaning' ? 'reading' : 'meaning';
+      }
+      // For pure kana words, always use meaning quiz
+      return 'meaning';
+    },
+    []
+  );
 
+  const resetGame = useCallback(
+    (nextQuizType?: 'meaning' | 'reading') => {
+      const typeToUse = nextQuizType ?? quizType;
+      const newQuestion = generateQuestion(typeToUse);
+      setQuestionData(newQuestion);
+      setPlacedTiles([]);
+      setIsChecking(false);
+      setIsCelebrating(false);
+      setBottomBarState('check');
+      setDisplayAnswerSummary(false);
+      // Start timing for the new question
+      speedStopwatch.reset();
+      speedStopwatch.start();
+    },
+    [generateQuestion, quizType]
+  );
+
+  // Only reset game on isReverse change if we're NOT showing the answer summary
+  // This prevents the summary from being hidden when smart reverse mode changes after a correct answer
   useEffect(() => {
-    resetGame();
-  }, [isReverse, resetGame]);
+    if (!displayAnswerSummary) {
+      resetGame();
+    }
+  }, [isReverse, resetGame, displayAnswerSummary]);
 
   // Pause stopwatch when game is hidden
   useEffect(() => {
@@ -404,6 +480,11 @@ const VocabWordBuildingGame = ({
   const handleCheck = useCallback(() => {
     if (placedTiles.length === 0) return;
 
+    // Debounce: prevent rapid button presses
+    const now = Date.now();
+    if (now - lastActionTimeRef.current < DEBOUNCE_MS) return;
+    lastActionTimeRef.current = now;
+
     // Stop timing and record answer time
     speedStopwatch.pause();
     const answerTimeMs = speedStopwatch.totalMilliseconds;
@@ -415,8 +496,8 @@ const VocabWordBuildingGame = ({
     const isCorrect =
       placedTiles.length === 1 && placedTiles[0] === questionData.correctAnswer;
 
-    // Get the selected word object for correct answer handling
-    const selectedWordObj = wordObjMap.get(questionData.word);
+    // Use the word object stored with the question (guaranteed to be correct)
+    const selectedWordObj = questionData.wordObj;
 
     if (isCorrect) {
       // Record answer time for speed achievements
@@ -438,13 +519,20 @@ const VocabWordBuildingGame = ({
       setScore(score + 1);
       setBottomBarState('correct');
       setIsCelebrating(true);
-      setDisplayAnswerSummary(true);
-      // Store the current word object for summary display
-      setCurrentWordObjForSummary(selectedWordObj || null);
+
+      // Use the word object stored with the question - guaranteed to be valid
+      // since the question wouldn't have been generated without it
+      if (selectedWordObj) {
+        setCurrentWordObjForSummary(selectedWordObj);
+        setDisplayAnswerSummary(true);
+      }
+
       // Set feedback for the summary
-      const displayText = isReverse
-        ? selectedWordObj?.meanings[0]
-        : questionData.word;
+      // displayText should match what was shown as the question
+      const displayText =
+        quizType === 'meaning' && isReverse
+          ? selectedWordObj?.meanings[0] // meaning+reverse: showed meaning
+          : questionData.word; // meaning+normal or reading: showed word
       setFeedback(
         <>
           <span className='text-[var(--secondary-color)]'>{`${displayText} = ${questionData.correctAnswer} `}</span>
@@ -501,20 +589,41 @@ const VocabWordBuildingGame = ({
     recordReverseModeWrong,
     addCorrectAnswerTime,
     recordAnswerTime,
-    wordObjMap,
-    isReverse
+    isReverse,
+    quizType
   ]);
 
   // Handle Continue button (only for correct answers)
   const handleContinue = useCallback(() => {
+    // Debounce: prevent rapid button presses from skipping summary
+    const now = Date.now();
+    if (now - lastActionTimeRef.current < DEBOUNCE_MS) return;
+    lastActionTimeRef.current = now;
+
     playClick();
     setDisplayAnswerSummary(false);
     externalOnCorrect?.([questionData.word]);
-    resetGame();
-  }, [playClick, externalOnCorrect, questionData.word, resetGame]);
+
+    // Determine next quiz type based on word content
+    const nextType = getNextQuizType(questionData.word, quizType);
+    setQuizType(nextType);
+    resetGame(nextType);
+  }, [
+    playClick,
+    externalOnCorrect,
+    questionData.word,
+    resetGame,
+    getNextQuizType,
+    quizType
+  ]);
 
   // Handle Try Again button (for wrong answers)
   const handleTryAgain = useCallback(() => {
+    // Debounce: prevent rapid button presses
+    const now = Date.now();
+    if (now - lastActionTimeRef.current < DEBOUNCE_MS) return;
+    lastActionTimeRef.current = now;
+
     playClick();
     setPlacedTiles([]);
     setIsChecking(false);
@@ -557,8 +666,8 @@ const VocabWordBuildingGame = ({
   const showContinue = bottomBarState === 'correct';
   const showTryAgain = bottomBarState === 'wrong';
 
-  // Get the current word object for display
-  const currentWordObj = wordObjMap.get(questionData.word);
+  // Get the current word object for display (stored with the question)
+  const currentWordObj = questionData.wordObj;
 
   return (
     <div
@@ -588,38 +697,65 @@ const VocabWordBuildingGame = ({
             exit='exit'
             className='flex w-full flex-col items-center gap-6 sm:gap-10'
           >
-            {/* Question Display - shows word in normal mode, meaning in reverse mode */}
-            <div className='flex flex-row items-center gap-1'>
-              <motion.div
-                className='flex flex-row items-center gap-2'
-                initial={{ opacity: 0, y: -20 }}
-                animate={{ opacity: 1, y: 0 }}
-                key={questionData.word}
-              >
-                <span
-                  className={clsx(
-                    isReverse ? 'text-5xl sm:text-6xl' : 'text-6xl sm:text-8xl'
-                  )}
-                  lang={!isReverse ? 'ja' : undefined}
+            {/* Question Display */}
+            <div className='flex flex-col items-center gap-4'>
+              {/* Show prompt based on quiz type (use effective quiz type from question) */}
+              <span className='mb-2 text-sm text-[var(--secondary-color)]'>
+                {questionData.quizType === 'meaning'
+                  ? isReverse
+                    ? 'What is the word?' // meaning+reverse: given meaning, find word
+                    : 'What is the meaning?' // meaning+normal: given word, find meaning
+                  : 'What is the reading?'}{' '}
+                {/* reading quiz: always asks for reading */}
+              </span>
+              <div className='flex flex-row items-center justify-center gap-1'>
+                <motion.div
+                  className='flex flex-row items-center gap-2'
+                  initial={{ opacity: 0, y: -20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  key={`${questionData.word}-${questionData.quizType}`}
                 >
-                  {!isReverse ? (
+                  {/* 
+                    Display logic by case:
+                    - Meaning + Normal: Show word with furigana
+                    - Meaning + Reverse: Show meaning (English)
+                    - Reading + Normal/Reverse: Show word WITHOUT furigana (user must guess reading)
+                  */}
+                  {questionData.quizType === 'meaning' && isReverse ? (
+                    // Meaning quiz in reverse: show English meaning
+                    <span className='text-center text-5xl sm:text-6xl'>
+                      {currentWordObj?.meanings[0]}
+                    </span>
+                  ) : (
+                    // Meaning quiz normal OR Reading quiz (any mode): show Japanese word
                     <FuriganaText
                       text={questionData.word}
-                      reading={currentWordObj?.reading}
+                      reading={
+                        // Only show furigana for meaning quiz in normal mode
+                        questionData.quizType === 'meaning' && !isReverse
+                          ? currentWordObj?.reading
+                          : undefined
+                      }
+                      className={clsx(
+                        questionData.quizType === 'meaning' && isReverse
+                          ? 'text-5xl sm:text-6xl'
+                          : 'text-6xl sm:text-8xl',
+                        'text-center'
+                      )}
+                      lang='ja'
                     />
-                  ) : (
-                    currentWordObj?.meanings[0]
                   )}
-                </span>
-                {!isReverse && (
-                  <SSRAudioButton
-                    text={questionData.word}
-                    variant='icon-only'
-                    size='sm'
-                    className='bg-[var(--card-color)] text-[var(--secondary-color)]'
-                  />
-                )}
-              </motion.div>
+                  {/* Audio button - show for word display (not for meaning-only display) */}
+                  {!(questionData.quizType === 'meaning' && isReverse) && (
+                    <SSRAudioButton
+                      text={questionData.word}
+                      variant='icon-only'
+                      size='sm'
+                      className='bg-[var(--card-color)] text-[var(--secondary-color)]'
+                    />
+                  )}
+                </motion.div>
+              </div>
             </div>
 
             {/* Answer Row Area - shows placed tiles */}
@@ -627,8 +763,10 @@ const VocabWordBuildingGame = ({
               <div
                 className={clsx(
                   'flex w-full items-center border-b-2 border-[var(--border-color)] px-2 pb-2 md:w-3/4 lg:w-2/3 xl:w-1/2',
-                  // Use taller min-height when in reverse mode (Japanese tiles have larger font size)
-                  isReverse ? 'min-h-[5.5rem]' : 'min-h-[5rem]'
+                  // Use taller min-height when tiles are Japanese (reverse mode OR reading quiz)
+                  isReverse || questionData.quizType === 'reading'
+                    ? 'min-h-[5.5rem]'
+                    : 'min-h-[5rem]'
                 )}
               >
                 <motion.div
@@ -645,7 +783,9 @@ const VocabWordBuildingGame = ({
                       char={char}
                       onClick={() => handleTileClick(char)}
                       isDisabled={isChecking && bottomBarState !== 'wrong'}
-                      isJapanese={isReverse}
+                      isJapanese={
+                        isReverse || questionData.quizType === 'reading'
+                      }
                       variants={celebrationBounceVariants}
                       motionStyle={{ transformOrigin: '50% 100%' }}
                     />
@@ -662,7 +802,8 @@ const VocabWordBuildingGame = ({
 
               const renderTile = (char: string) => {
                 const isPlaced = placedTiles.includes(char);
-                const isJapaneseTile = isReverse;
+                const isJapaneseTile =
+                  isReverse || questionData.quizType === 'reading';
 
                 return (
                   <motion.div
