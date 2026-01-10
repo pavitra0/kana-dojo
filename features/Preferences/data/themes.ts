@@ -943,6 +943,12 @@ const baseThemeSets: BaseThemeGroup[] = [
         mainColor: 'oklch(94.0% 0.160 25.0 / 1)',           // pale sunrise pink
         secondaryColor: 'oklch(88.0% 0.140 305.0 / 1)',     // spring mist violet
       },
+      {
+        id: 'sango-midori',
+        backgroundColor: 'oklch(22.0% 0.045 145.0 / 1)',   // reef dusk
+        mainColor: 'oklch(90.0% 0.208 150.0 / 1)',          // coral green
+        secondaryColor: 'oklch(82.0% 0.160 185.0 / 1)',     // lagoon teal
+      },
 
     ]
   },
