@@ -323,6 +323,12 @@ const baseThemeSets: BaseThemeGroup[] = [
     isLight: false,
     themes: [
       {
+        id: 'festival-yatai',
+        backgroundColor: 'oklch(19.0% 0.030 35.0 / 1)',
+        mainColor: 'oklch(78.0% 0.185 45.0 / 1)',
+        secondaryColor: 'oklch(88.0% 0.115 95.0 / 1)'
+      },
+      {
         id: 'shoji-glow',
         backgroundColor: 'oklch(94.0% 0.010 95.0 / 1)',
         mainColor: 'oklch(45.0% 0.075 65.0 / 1)',
